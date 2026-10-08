@@ -399,7 +399,7 @@ async function resolver(t){
    rol 'destino': debe existir, no ser desambiguación y tener al menos un artículo que lo enlace
      (con menos de MIN_ENTRANTES se permite, pero se devuelve un aviso de que será difícil).
    rol 'inicio': debe existir, no ser desambiguación y tener suficientes enlaces de salida. */
-const MIN_ENTRANTES=5,MIN_SALIENTES=5;
+const MIN_ENTRANTES=10,MIN_SALIENTES=5;
 async function validar(t,rol){
   const params={action:'query',titles:t,redirects:1,prop:'pageprops|'+(rol==='destino'?'linkshere':'links'),ppprop:'disambiguation'};
   if(rol==='destino')Object.assign(params,{lhnamespace:0,lhlimit:MIN_ENTRANTES});
@@ -417,7 +417,7 @@ async function validar(t,rol){
   if(rol==='destino'){
     const n=(p.linkshere||[]).length;
     if(n===0)return{ok:false,titulo,motivo:`Ningún artículo enlaza a «${titulo}», así que es imposible llegar.`};
-    if(n<MIN_ENTRANTES)aviso=`Solo ${n} ${n===1?'artículo enlaza':'artículos enlazan'} a «${titulo}». Puedes jugar, pero será muy difícil llegar.`;
+    if(n<MIN_ENTRANTES)aviso=`Solo ${n} ${n===1?'artículo enlaza':'artículos enlazan'} a «${titulo}».`;
   }else{
     const n=(p.links||[]).length;
     if(n<MIN_SALIENTES)return{ok:false,titulo,motivo:`«${titulo}» casi no tiene enlaces para salir. Elige otro inicio.`};
