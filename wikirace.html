@@ -64,6 +64,7 @@ input.campo:focus,select.campo:focus{border:2px solid var(--primario);padding:0 
 .ayuda .lucide{width:16px;height:16px;flex-shrink:0}
 .ayuda.ok{color:var(--ok)}
 .ayuda.mal{color:var(--mal)}
+.ayuda.aviso{color:var(--aviso)}
 .campo.invalido{border-color:var(--mal)}
 .chip-j .quitar{width:28px;height:28px;margin:0 -8px 0 -2px;color:var(--sutil)}
 .chip-j .quitar .lucide,.bandeja .quitar .lucide{width:16px;height:16px}
@@ -395,7 +396,8 @@ async function resolver(t){
   return p.title;
 }
 /* Comprueba que un artículo sirva para jugar.
-   rol 'destino': debe existir, no ser desambiguación y tener suficientes artículos que lo enlacen.
+   rol 'destino': debe existir, no ser desambiguación y tener al menos un artículo que lo enlace
+     (con menos de MIN_ENTRANTES se permite, pero se devuelve un aviso de que será difícil).
    rol 'inicio': debe existir, no ser desambiguación y tener suficientes enlaces de salida. */
 const MIN_ENTRANTES=5,MIN_SALIENTES=5;
 async function validar(t,rol){
@@ -411,14 +413,16 @@ async function validar(t,rol){
   const original=redir?redir.from:t;
   if(p.pageprops&&('disambiguation' in p.pageprops))
     return{ok:false,titulo,motivo:`«${titulo}» es una página de desambiguación (una lista de significados). Elige un artículo más concreto.`};
+  let aviso='';
   if(rol==='destino'){
     const n=(p.linkshere||[]).length;
-    if(n<MIN_ENTRANTES)return{ok:false,titulo,motivo:n===0?`Ningún artículo enlaza a «${titulo}», así que es imposible llegar.`:`Solo ${n} ${n===1?'artículo enlaza':'artículos enlazan'} a «${titulo}»; sería casi imposible llegar.`};
+    if(n===0)return{ok:false,titulo,motivo:`Ningún artículo enlaza a «${titulo}», así que es imposible llegar.`};
+    if(n<MIN_ENTRANTES)aviso=`Solo ${n} ${n===1?'artículo enlaza':'artículos enlazan'} a «${titulo}». Puedes jugar, pero será muy difícil llegar.`;
   }else{
     const n=(p.links||[]).length;
     if(n<MIN_SALIENTES)return{ok:false,titulo,motivo:`«${titulo}» casi no tiene enlaces para salir. Elige otro inicio.`};
   }
-  return{ok:true,titulo,redirigido:!!redir,original};
+  return{ok:true,titulo,redirigido:!!redir,original,aviso};
 }
 async function resumen(t){
   try{const r=await fetch(REST+'/page/summary/'+encodeURIComponent(t.replace(/ /g,'_')));if(!r.ok)return{};
@@ -437,14 +441,14 @@ async function elegirAleatorio(excluir,rol='destino'){
   if($('#cfgModo').value==='conocido'){
     for(let i=0;i<6;i++){
       const c=CONOCIDOS[Math.floor(Math.random()*CONOCIDOS.length)];
-      try{const v=await validar(c,rol);if(v.ok&&v.titulo!==excluir)return v.titulo;}catch(e){}
+      try{const v=await validar(c,rol);if(v.ok&&!v.aviso&&v.titulo!==excluir)return v.titulo;}catch(e){}
     }
   }
   for(let i=0;i<4;i++){
     const d=await api({action:'query',list:'random',rnnamespace:0,rnlimit:10});
     for(const r of d.query.random){
       if(r.title===excluir)continue;
-      try{const v=await validar(r.title,rol);if(v.ok)return v.titulo;}catch(e){}
+      try{const v=await validar(r.title,rol);if(v.ok&&!v.aviso)return v.titulo;}catch(e){}
     }
   }
   throw new Error('No pude obtener un artículo aleatorio válido');
@@ -833,6 +837,7 @@ function marcarAyuda(rol,v){
   if(!v){el.hidden=true;el.innerHTML='';return;}
   el.hidden=false;
   if(v==='cargando'){el.className='ayuda';el.innerHTML=ic('loader-circle')+'Comprobando…';}
+  else if(v.ok&&v.aviso){el.className='ayuda aviso';el.innerHTML=ic('triangle-alert')+`<span>${v.redirigido?`«${esc(v.original)}» redirige a «${esc(v.titulo)}». `:''}${esc(v.aviso)}</span>`;}
   else if(v.ok&&v.redirigido){el.className='ayuda ok';el.innerHTML=ic('corner-down-right')+`<span>«${esc(v.original)}» no tiene artículo propio: redirige a «${esc(v.titulo)}». El ${rol} será «${esc(v.titulo)}».</span>`;}
   else if(v.ok){el.className='ayuda ok';el.innerHTML=ic('circle-check')+`<span>«${esc(v.titulo)}» sirve como ${rol}.</span>`;}
   else{el.className='ayuda mal';el.innerHTML=ic('circle-alert')+`<span>${esc(v.motivo)}</span>`;}
