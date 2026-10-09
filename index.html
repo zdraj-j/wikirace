@@ -530,7 +530,51 @@ function pedirNombre(){
   if(!n){toast('Escribe tu nombre primero');$('#nombre').focus();return null;}
   guardar('wkr_nombre',n);return n.slice(0,20);
 }
-function cerrarRed(){try{conns.forEach(c=>c.close())}catch(e){} conns.clear();try{hostConn&&hostConn.close()}catch(e){} hostConn=null;try{peer&&peer.destroy()}catch(e){} peer=null;}
+function cerrarRed(){clearTimeout(reconTmo);unido=false;conectando=false;try{conns.forEach(c=>c.close())}catch(e){} conns.clear();try{hostConn&&hostConn.close()}catch(e){} hostConn=null;try{peer&&peer.destroy()}catch(e){} peer=null;}
+
+/* Reconexión: en el móvil, al apagarse la pantalla el navegador suspende la página y se cortan
+   las conexiones. Al volver se reconecta al servidor y, si es invitado, de nuevo al anfitrión. */
+let unido=false,conectando=false,reconTmo=null,avisoPerdida=false;
+const GRACIA=90000; // tiempo que se espera a un jugador desconectado antes de darlo por fuera
+function asegurarRed(){
+  if(!peer||peer.destroyed)return;
+  if(peer.disconnected){try{peer.reconnect()}catch(e){}return;}
+  if(!esHost&&unido&&!conectando&&!(hostConn&&hostConn.open))conectarHost();
+}
+function programarReconexion(ms=2500){clearTimeout(reconTmo);reconTmo=setTimeout(asegurarRed,ms);}
+function conectarHost(){
+  if(!peer||peer.destroyed)return;
+  const c=peer.connect(PREFIJO+codigo,{reliable:true});hostConn=c;conectando=true;
+  const tmo=setTimeout(()=>{if(!c.open&&c===hostConn){conectando=false;try{c.close()}catch(e){} if(unido)programarReconexion();}},10000);
+  c.on('open',()=>{
+    clearTimeout(tmo);conectando=false;
+    const reconexion=unido;unido=true;
+    c.send({t:'hola',nombre:miNombre,enJuego:!!juego});
+    if(juego&&local)enviarProgreso();
+    if(reconexion&&avisoPerdida)toast('Conexión recuperada');
+    avisoPerdida=false;
+  });
+  c.on('data',recibir);
+  c.on('close',()=>{
+    if(c!==hostConn)return;
+    conectando=false;
+    if(!unido||!peer||peer.destroyed)return;
+    if(!avisoPerdida){avisoPerdida=true;toast('Se perdió la conexión con el anfitrión. Reconectando…',4000);}
+    programarReconexion();
+  });
+  return c;
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){asegurarRed();mantenerPantalla();}});
+window.addEventListener('online',asegurarRed);
+setInterval(asegurarRed,5000);
+
+/* Mientras se juega, evita que la pantalla se apague sola (si el navegador lo permite) */
+let wakeLock=null;
+async function mantenerPantalla(){
+  if(!juego||wakeLock||document.visibilityState!=='visible'||!('wakeLock' in navigator))return;
+  try{wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null;});}catch(e){}
+}
+function soltarPantalla(){try{wakeLock&&wakeLock.release()}catch(e){} wakeLock=null;}
 
 function crearSala(){
   const n=pedirNombre();if(!n)return;miNombre=n;esHost=true;
@@ -539,23 +583,27 @@ function crearSala(){
   const restaurar=()=>{btn.disabled=false;setBtn(btn,'plus','Crear sala');};
   const intentar=()=>{
     codigo=genCodigo();
-    peer=new Peer(PREFIJO+codigo,{debug:0});
-    peer.on('open',id=>{
+    const p=peer=new Peer(PREFIJO+codigo,{debug:0});
+    let abierta=false;
+    p.on('open',id=>{
+      if(abierta)return; // 'open' se repite tras reconectar: la sala y la partida siguen igual
+      abierta=true;
       miId=id;jugadores={};jugadores[miId]={nombre:miNombre,conectado:true,host:true};
       restaurar();enviarSala(true);
     });
-    peer.on('connection',c=>{
-      c.on('open',()=>conns.set(c.peer,c));
+    p.on('connection',c=>{
+      c.on('open',()=>{const viejo=conns.get(c.peer);conns.set(c.peer,c);if(viejo&&viejo!==c)try{viejo.close()}catch(e){}});
       c.on('data',d=>hostRecibir(c.peer,d));
-      c.on('close',()=>desconectado(c.peer));
-      c.on('error',()=>desconectado(c.peer));
+      // Solo cuenta si es la conexión vigente (al reconectar, la vieja puede cerrarse después de abrir la nueva)
+      c.on('close',()=>{if(conns.get(c.peer)===c)desconectado(c.peer);});
+      c.on('error',()=>{if(conns.get(c.peer)===c)desconectado(c.peer);});
     });
-    peer.on('error',e=>{
-      if(e.type==='unavailable-id'){peer.destroy();intentar();return;}
-      if(e.type==='peer-unavailable')return;
+    p.on('error',e=>{
+      if(e.type==='unavailable-id'&&!abierta){p.destroy();intentar();return;}
+      if(abierta||e.type==='peer-unavailable')return; // errores durante la reconexión: se reintenta solo
       toast('Error de conexión: '+e.type);restaurar();
     });
-    peer.on('disconnected',()=>{try{peer.reconnect()}catch(e){}});
+    p.on('disconnected',()=>setTimeout(asegurarRed,1000));
   };
   intentar();
 }
@@ -567,20 +615,21 @@ function unirse(){
   if(typeof Peer==='undefined'){toast('No se pudo cargar PeerJS. Revisa la conexión a internet.');return;}
   codigo=cod;const btn=$('#btnUnir');btn.disabled=true;setBtn(btn,'loader-circle','Conectando…');
   const restaurar=()=>{btn.disabled=false;setBtn(btn,null,'Unirse');};
-  peer=new Peer({debug:0});
-  peer.on('open',id=>{
+  const p=peer=new Peer({debug:0});
+  p.on('open',id=>{
     miId=id;
-    hostConn=peer.connect(PREFIJO+cod,{reliable:true});
-    const tmo=setTimeout(()=>{if(!hostConn||!hostConn.open){toast('No se pudo conectar a la sala '+cod);restaurar();cerrarRed();}},12000);
-    hostConn.on('open',()=>{clearTimeout(tmo);restaurar();hostConn.send({t:'hola',nombre:miNombre});});
-    hostConn.on('data',recibir);
-    hostConn.on('close',()=>{if(peer)toast('Se perdió la conexión con el anfitrión',5000);});
+    if(unido){programarReconexion(0);return;} // 'open' tras reconectar al servidor: volver con el anfitrión
+    const c=conectarHost();
+    const tmo=setTimeout(()=>{if(!c.open){toast('No se pudo conectar a la sala '+cod);restaurar();cerrarRed();}},12000);
+    c.on('open',()=>{clearTimeout(tmo);restaurar();});
   });
-  peer.on('error',e=>{
+  p.on('error',e=>{
+    if(unido){if(e.type==='peer-unavailable')programarReconexion();return;} // el anfitrión aún no vuelve: reintentar
     if(e.type==='peer-unavailable')toast('No existe una sala con el código '+cod);
     else toast('Error de conexión: '+e.type);
     restaurar();
   });
+  p.on('disconnected',()=>setTimeout(asegurarRed,1000));
 }
 
 function broadcast(msg){conns.forEach(c=>{if(c.open)try{c.send(msg)}catch(e){}});}
@@ -589,9 +638,17 @@ function broadcast(msg){conns.forEach(c=>{if(c.open)try{c.send(msg)}catch(e){}})
 function hostRecibir(id,d){
   if(!d||typeof d!=='object')return;
   if(d.t==='hola'){
-    jugadores[id]={nombre:String(d.nombre||'Jugador').slice(0,20),conectado:true};
+    const j=jugadores[id];
+    if(j){ // vuelve tras perder la conexión (p. ej. se le apagó la pantalla): conserva su progreso
+      j.conectado=true;delete j.desde;
+      if(partida&&partida.participantes.includes(id)){toast(j.nombre+' volvió a la partida');enviarEstado();}
+    }else{
+      jugadores[id]={nombre:String(d.nombre||'Jugador').slice(0,20),conectado:true};
+      if(partida)toast(jugadores[id].nombre+' entró y jugará la próxima partida');
+    }
     enviarSala(false);
-    if(partida)toast(jugadores[id].nombre+' entró y jugará la próxima partida');
+    // Si la partida terminó mientras estaba desconectado, se le envían los resultados
+    if(!partida&&d.enJuego&&ultimoFin&&ultimoFin.resultados.some(r=>r.id===id)){const c=conns.get(id);if(c)try{c.send(ultimoFin)}catch(e){}}
   }else if(d.t==='prog'){
     if(!partida||!partida.participantes.includes(id)||!jugadores[id])return;
     const j=jugadores[id];
@@ -621,7 +678,10 @@ function expulsar(id){
 function desconectado(id){
   conns.delete(id);
   const j=jugadores[id];if(!j)return;
-  if(partida&&partida.participantes.includes(id)){j.conectado=false;toast(j.nombre+' se desconectó');enviarEstado();revisarFin();}
+  if(partida&&partida.participantes.includes(id)){
+    j.conectado=false;j.desde=Date.now();toast(j.nombre+' se desconectó');enviarEstado();
+    setTimeout(revisarFin,GRACIA+500);
+  }
   else delete jugadores[id];
   enviarSala(false);
 }
@@ -637,7 +697,8 @@ function enviarEstado(){
 }
 function revisarFin(){
   if(!partida||partida.terminando)return;
-  const todos=partida.participantes.every(id=>{const j=jugadores[id];return !j||j.terminado||j.rendido||j.conectado===false;});
+  // Un desconectado solo cuenta como fuera si no ha vuelto tras GRACIA (puede que solo se le apagara la pantalla)
+  const todos=partida.participantes.every(id=>{const j=jugadores[id];return !j||j.terminado||j.rendido||(j.conectado===false&&Date.now()-(j.desde||0)>=GRACIA);});
   if(todos){partida.terminando=true;finTmo=setTimeout(()=>terminar('todos'),1500);}
 }
 async function iniciarPartida(){
@@ -689,7 +750,7 @@ function recibir(m){
   else if(m.t==='estado')renderMarcador(m.jugadores);
   else if(m.t==='fin')mostrarResultados(m);
   else if(m.t==='expulsado'&&!esHost){
-    cerrarRed();juego=null;clearInterval(relojInt);capa(null);$('#aside').classList.remove('abierto');show('inicio');
+    cerrarRed();juego=null;soltarPantalla();clearInterval(relojInt);capa(null);$('#aside').classList.remove('abierto');show('inicio');
     capa(`<div class="dialogo centro"><div class="circ">${ic('user-x')}</div><h3>Saliste de la sala</h3>
       <p class="sutil">El anfitrión te sacó de la partida.</p>
       <div class="acciones"><button class="btn lleno" onclick="capa(null)">Entendido</button></div></div>`);
@@ -709,7 +770,7 @@ function renderSala(m){
   $('#cfgHost').hidden=!esHost;$('#esperaCliente').hidden=esHost;
   if(!m.enJuego)$('#avisoSala').textContent=esHost&&m.jugadores.length<2?'Puedes esperar a más jugadores o jugar solo.':'';
   if(m.irSala||pantallaActual==='inicio'||pantallaActual==='sala'){
-    if(m.irSala){juego=null;capa(null);}
+    if(m.irSala){juego=null;soltarPantalla();capa(null);}
     show('sala');
   }
 }
@@ -719,7 +780,7 @@ function elapsed(){return Date.now()-local.inicioLocal;}
 function comenzarJuego(m){
   juego=m;
   local={ruta:[],pila:[],clics:0,terminado:false,tiempo:null,rendido:false,inicioLocal:Date.now()+m.delay};
-  show('juego');
+  show('juego');mantenerPantalla();
   $('#txtDestino').textContent=m.destino;
   if(m.ajustes.primero)setTimeout(()=>toast('Modo rápido: la partida termina cuando alguien llegue al destino',4000),m.delay+500);
   $('#btnAtras').hidden=!m.ajustes.atras;
@@ -852,7 +913,7 @@ function renderMarcador(lista){
 /* ================= Resultados ================= */
 let ultimoFin=null;
 function mostrarResultados(m){
-  ultimoFin=m;juego=null;clearInterval(relojInt);capa(null);$('#aside').classList.remove('abierto');
+  ultimoFin=m;juego=null;soltarPantalla();clearInterval(relojInt);capa(null);$('#aside').classList.remove('abierto');
   const ganador=m.resultados.find(r=>r.terminado);
   const motivo={tiempo:'Se acabó el tiempo.',host:'El anfitrión terminó la partida.',todos:'',
     ganador:ganador?`${esc(ganador.nombre)} llegó primero y la partida terminó para todos.`:''}[m.motivo]||'';
@@ -974,7 +1035,7 @@ $('#btnVolverSala').onclick=()=>{
   enviarSala(true);
 };
 $('#btnCopiar').onclick=async()=>{try{await navigator.clipboard.writeText(textoResultados());toast('Resultados copiados');}catch(e){toast('No se pudo copiar');}};
-function salir(){if(!confirm('¿Salir de la sala?'))return;cerrarRed();juego=null;partida=null;jugadores={};clearInterval(relojInt);capa(null);show('inicio');}
+function salir(){if(!confirm('¿Salir de la sala?'))return;cerrarRed();juego=null;soltarPantalla();partida=null;jugadores={};clearInterval(relojInt);capa(null);show('inicio');}
 $('#btnSalirSala').onclick=salir;$('#btnSalirFin').onclick=salir;
 window.addEventListener('beforeunload',e=>{if(juego){e.preventDefault();e.returnValue='';}});
 const qs=new URLSearchParams(location.search).get('sala');if(qs)$('#codigoUnir').value=qs.toUpperCase();
