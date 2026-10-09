@@ -125,6 +125,9 @@ input.campo:focus,select.campo:focus{border:2px solid var(--primario);padding:0 
 .stat{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--borde);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap;background:var(--panel)}
 .stat .lucide{width:16px;height:16px;color:var(--sutil)}
 .stat.alerta{color:var(--mal);border-color:var(--mal)}
+.actual{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:0 8px;color:var(--sutil);font-size:13px}
+.actual span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actual .lucide{width:14px;height:14px;opacity:.7}
 .cuerpo{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;padding:0 16px 16px}
 .panel-art{background:var(--panel);border-radius:16px;min-height:calc(100vh - 80px)}
 .aside{background:var(--panel);border-radius:16px;position:sticky;top:76px;max-height:calc(100vh - 92px);overflow:auto;padding:8px 0}
@@ -137,11 +140,19 @@ input.campo:focus,select.campo:focus{border:2px solid var(--primario);padding:0 
 .miruta li::before{content:counter(r);width:20px;height:20px;border-radius:50%;background:var(--chip);font-size:11px;display:inline-flex;align-items:center;justify-content:center;color:var(--sutil);flex-shrink:0}
 .miruta .lucide{width:14px;height:14px;color:var(--sutil)}
 @media (max-width:900px){
-  .cuerpo{grid-template-columns:1fr;padding:0 8px 8px}
+  .cuerpo{grid-template-columns:minmax(0,1fr);padding:0 8px 8px}
   .aside{display:none;position:fixed;left:8px;right:8px;bottom:8px;top:auto;max-height:60vh;z-index:30;box-shadow:0 4px 20px rgba(0,0,0,.25)}
   .aside.abierto{display:block}
-  .barra-juego .marca span{display:none}
-  .buscador{order:10;flex-basis:100%;max-width:none}
+  /* Barra compacta: fila 1 = artículo actual + botones; fila 2 = destino + clics + tiempo */
+  .barra-juego{min-height:0;padding:6px 8px;gap:6px 4px}
+  .barra-juego::after{content:'';flex-basis:100%;order:9}
+  .barra-juego .marca{display:none}
+  .barra-juego .icbtn{width:36px;height:36px}
+  .actual{padding:0 4px}
+  .buscador{order:10;flex:1 1 0;min-width:0;max-width:none;height:40px;gap:8px;padding:0 4px 0 12px}
+  .buscador .txt{font-size:15px}
+  .buscador .txt small{display:none}
+  .barra-juego .stat{order:11;padding:0 8px;gap:4px}
 }
 @media (min-width:901px){#btnPanel{display:none}}
 
@@ -165,6 +176,33 @@ input.campo:focus,select.campo:focus{border:2px solid var(--primario);padding:0 
 .articulo a.wl:hover{text-decoration:underline}
 .articulo a[href^="#"]{color:var(--sutil);cursor:pointer}
 .articulo .navbox{font-size:12px}
+/* Que nada se salga del ancho de pantalla: tablas anchas con desplazamiento propio */
+.panel-art{overflow-x:hidden;overflow-x:clip}
+.articulo .tabla-scroll{overflow-x:auto;max-width:100%;margin:0 0 16px}
+.articulo .tabla-scroll>table{margin:0;overflow-wrap:normal}
+.articulo [style*="width"]{max-width:100%!important}
+.articulo pre{white-space:pre-wrap}
+.articulo .mwe-math-element{display:inline-block;max-width:100%;overflow-x:auto;vertical-align:middle}
+.articulo video,.articulo iframe{max-width:100%}
+@media (max-width:700px){
+  .articulo .thumb.tright,.articulo .thumb.tleft,.articulo figure[typeof~="mw:File/Thumb"],.articulo figure[typeof~="mw:File/Frame"]{float:none;margin:0 auto 16px;max-width:100%}
+  .articulo .infobox,.articulo .sinopsis{display:block;overflow-x:auto;width:auto!important}
+  .articulo .gallery{padding:0}
+}
+/* Índice */
+.articulo .indice{border:1px solid var(--borde);border-radius:12px;background:var(--bg);margin:0 0 16px;display:inline-block;min-width:min(260px,100%);max-width:100%}
+.articulo .indice summary{cursor:pointer;padding:8px 14px;font-weight:500;display:flex;align-items:center;gap:8px;list-style:none;color:var(--muted)}
+.articulo .indice summary::-webkit-details-marker{display:none}
+.articulo .indice summary .lucide{width:18px;height:18px;color:var(--sutil)}
+.articulo .indice summary .chev{margin-left:auto;transition:transform .2s}
+.articulo .indice[open] summary .chev{transform:rotate(180deg)}
+.articulo .indice ol{list-style:none;margin:0;padding:0 14px 10px;font-size:14px}
+.articulo .indice li{padding:3px 0}
+.articulo .indice li li{padding-left:16px}
+.articulo .indice ol ol{padding:0}
+.articulo .indice .num{color:var(--sutil);margin-right:6px;font-variant-numeric:tabular-nums}
+.articulo .indice a{color:var(--txt)}
+.articulo [id]{scroll-margin-top:120px}
 .articulo .mw-references-wrap,.articulo .references{font-size:12px}
 
 /* Diálogos, snackbar, cargando */
@@ -306,7 +344,7 @@ details.ruta a:hover{text-decoration:underline}
       <div class="txt"><small>Destino</small><b id="txtDestino">—</b></div>
       <span class="icbtn" style="width:36px;height:36px"><i data-lucide="info"></i></span>
     </div>
-    <div class="espacio"></div>
+    <div class="actual" id="actual" title="Artículo actual"><i data-lucide="file-text"></i><span id="txtActual"></span></div>
     <span class="stat" title="Clics"><i data-lucide="mouse-pointer-click"></i><span id="txtClics">0</span></span>
     <span class="stat" id="statTiempo" title="Tiempo"><i data-lucide="timer"></i><span id="txtTiempo">00:00</span></span>
     <button class="icbtn" id="btnAtras" title="Volver atrás"><i data-lucide="arrow-left"></i></button>
@@ -728,21 +766,21 @@ async function navegar(titulo,tipo){
   if(cargando||!juego||local.terminado||local.rendido)return;
   cargando=true;$('#cargando').hidden=false;
   try{
-    const d=await api({action:'parse',page:titulo,prop:'text',redirects:1,disableeditsection:1,disabletoc:1});
+    const d=await api({action:'parse',page:titulo,prop:'text|sections',redirects:1,disableeditsection:1,disabletoc:1});
     if(d.error)throw new Error(d.error.info||'error');
     if(!juego)return;
     const p=d.parse,t=p.title;
     if(tipo!=='inicio')local.clics++;
     if(tipo==='atras')local.pila.pop();else local.pila.push(t);
     local.ruta.push({titulo:t,t:Math.max(0,elapsed()),tipo});
-    renderArticulo(t,p.text);
+    renderArticulo(t,p.text,p.sections);
     if(t===juego.destino){local.terminado=true;local.tiempo=Math.max(0,elapsed());}
     enviarProgreso();actualizarBarra();actualizarReloj();
     if(local.terminado)mostrarLlegada();
   }catch(e){toast('No se pudo cargar la página: '+e.message);}
   finally{cargando=false;$('#cargando').hidden=true;}
 }
-function renderArticulo(titulo,html){
+function renderArticulo(titulo,html,secciones){
   const doc=new DOMParser().parseFromString(html,'text/html');
   doc.querySelectorAll('script,style,link,meta,.mw-editsection,.mw-empty-elt').forEach(n=>n.remove());
   doc.querySelectorAll('*').forEach(el=>{for(const a of [...el.attributes])if(/^on/i.test(a.name))el.removeAttribute(a.name);});
@@ -751,8 +789,35 @@ function renderArticulo(titulo,html){
     img.setAttribute('loading','lazy');
   });
   doc.querySelectorAll('a').forEach(a=>{const t=tituloDeEnlace(a);if(t){a.dataset.wiki=t;a.classList.add('wl');}});
+  // Tablas anchas: se desplazan por dentro en vez de ensanchar la página (no las fichas, que flotan)
+  doc.querySelectorAll('table').forEach(tb=>{
+    if(tb.parentElement.closest('table')||tb.matches('.infobox,.sinopsis')||/float/.test(tb.getAttribute('style')||''))return;
+    const w=doc.createElement('div');w.className='tabla-scroll';tb.replaceWith(w);w.appendChild(tb);
+  });
+  const indice=crearIndice(doc,secciones);
+  if(indice){const h=doc.querySelector('.mw-heading,h2');if(h)h.before(indice);else doc.body.append(indice);}
   $('#articulo').innerHTML=`<h1>${esc(titulo)}</h1>`+doc.body.innerHTML;
+  $('#txtActual').textContent=titulo;$('#actual').title='Estás en: '+titulo;
   window.scrollTo(0,0);
+}
+/* Índice desplegable a partir de las secciones que devuelve la API (solo las que existen en el texto) */
+function crearIndice(doc,secciones){
+  const sec=(secciones||[]).filter(s=>s.anchor&&doc.getElementById(s.anchor));
+  if(sec.length<2)return null;
+  const limpio=h=>{const e=doc.createElement('span');e.innerHTML=h;return e.textContent;};
+  let html='',nivel=0;
+  for(const s of sec){
+    const n=Math.max(1,+s.toclevel||1);
+    if(n>nivel)html+='<ol><li>'.repeat(n-nivel);
+    else html+='</li></ol>'.repeat(nivel-n)+'</li><li>';
+    nivel=n;
+    html+=`<a href="#${esc(encodeURIComponent(s.anchor))}"><span class="num">${esc(s.number)}</span>${esc(limpio(s.line))}</a>`;
+  }
+  html+='</li></ol>'.repeat(nivel);
+  const d=doc.createElement('details');d.className='indice';
+  if(!matchMedia('(max-width:700px)').matches)d.open=true;
+  d.innerHTML=`<summary>${ic('list')}Índice<span class="sutil peq">${sec.length} secciones</span>${ic('chevron-down').replace('<i ','<i class="chev" ')}</summary>`+html;
+  return d;
 }
 function mostrarLlegada(){
   capa(`<div class="dialogo centro"><div class="circ ok">${ic('party-popper')}</div>
@@ -878,7 +943,8 @@ art.addEventListener('click',e=>{
   if(a.dataset.wiki){navegar(a.dataset.wiki,'enlace');return;}
   const href=a.getAttribute('href')||'';
   if(href.startsWith('#')){let id=href.slice(1);try{id=decodeURIComponent(id)}catch(_){}
-    const el=document.getElementById(id);if(el)el.scrollIntoView({behavior:'smooth',block:'center'});return;}
+    const el=document.getElementById(id);
+    if(el)el.scrollIntoView({behavior:'smooth',block:a.closest('.indice')?'start':'center'});return;}
   toast('Ese enlace no cuenta en el juego');
 });
 art.addEventListener('auxclick',e=>{if(e.target.closest('a'))e.preventDefault();});
