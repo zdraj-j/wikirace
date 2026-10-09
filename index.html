@@ -249,6 +249,15 @@ details.ruta li{display:flex;align-items:center;gap:10px;padding:5px 0;flex-wrap
 .tag.meta{background:var(--okbg);color:var(--ok)}
 details.ruta a{color:var(--link);text-decoration:none}
 details.ruta a:hover{text-decoration:underline}
+.enlaces{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px 4px}
+.enlaces a{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:16px;background:var(--chip);color:var(--link);text-decoration:none;font-size:13px}
+.enlaces a:hover{text-decoration:underline}
+.enlaces a.visto{background:var(--okbg);color:var(--ok)}
+.enlaces .lucide{width:14px;height:14px}
+.enl-nota{margin:0;padding:0 16px}
+.enl-pie{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:4px 4px 8px}
+.enl-pie a{color:var(--link);text-decoration:none;font-size:13px;padding:0 12px}
+.enl-pie a:hover{text-decoration:underline}
 .tarjeta.lista{padding:8px 0}
 .tarjeta.lista>h2{padding:12px 16px 4px}
 </style>
@@ -385,6 +394,15 @@ details.ruta a:hover{text-decoration:underline}
     <h2><i data-lucide="history"></i>Historial de páginas consultadas</h2>
     <div id="rutas"></div>
   </div>
+  <div class="tarjeta lista">
+    <h2><i data-lucide="link"></i><span id="enlTitulo">Artículos que enlazan al destino</span></h2>
+    <p class="sutil peq enl-nota" id="enlNota"></p>
+    <div class="enlaces" id="enlaces"></div>
+    <div class="enl-pie">
+      <button class="btn texto" id="btnMasEnlaces" hidden><i data-lucide="chevrons-down"></i><span>Ver todos</span></button>
+      <a id="enlWiki" target="_blank" rel="noopener">Ver la lista en Wikipedia</a>
+    </div>
+  </div>
   <div class="acciones">
     <button class="btn lleno" id="btnVolverSala" hidden><i data-lucide="undo-2"></i><span>Volver a la sala</span></button>
     <button class="btn contorno" id="btnCopiar"><i data-lucide="copy"></i><span>Copiar resultados</span></button>
@@ -473,6 +491,18 @@ async function validar(t,rol){
 async function resumen(t){
   try{const r=await fetch(REST+'/page/summary/'+encodeURIComponent(t.replace(/ /g,'_')));if(!r.ok)return{};
     const j=await r.json();return{desc:j.description||'',extract:j.extract||'',thumb:j.thumbnail?j.thumbnail.source:''};}catch(e){return{};}
+}
+/* Artículos que enlazan a t, incluidos los que enlazan a través de una redirección.
+   Devuelve como mucho ~500 títulos; «mas» indica que hay más de los que se trajeron. */
+async function entrantes(t){
+  const d=await api({action:'query',list:'backlinks',bltitle:t,blnamespace:0,bllimit:'max',blredirect:1,blfilterredir:'nonredirects'});
+  const set=new Set();
+  for(const b of (d.query&&d.query.backlinks)||[]){
+    if(b.redirect)(b.redirlinks||[]).forEach(r=>{if(r.ns===0)set.add(r.title);});
+    else if(b.ns===0)set.add(b.title);
+  }
+  set.delete(t);
+  return{titulos:[...set],mas:!!d.continue};
 }
 const CONOCIDOS=['Colombia','Cali','Bogotá','Gabriel García Márquez','Shakira','Café','Albert Einstein','Luna','Sol','Imperio romano',
 'Segunda Guerra Mundial','Primera Guerra Mundial','Fútbol','Pizza','Leonardo da Vinci','Internet','Música','Dinosauria','Torre Eiffel','Japón',
@@ -969,9 +999,47 @@ function mostrarResultados(m){
     }).join('')||'<li class="sutil">Sin páginas</li>';
     return `<details class="ruta" ${i<3||r.id===miId?'open':''}><summary>${avatar(r.nombre)}<div><div style="font-weight:700">${esc(r.nombre)}</div><div class="sutil peq">${(r.ruta||[]).length} páginas consultadas</div></div><span class="chev">${ic('chevron-down')}</span></summary><ol>${items}</ol></details>`;
   }).join('');
+  mostrarEntrantes(m);
   $('#btnVolverSala').hidden=!esHost;
   $('#notaFin').textContent=esHost?'':'Cuando el anfitrión vuelva a la sala, pasarás automáticamente.';
   show('final');iconos();
+}
+/* Lista de artículos que contienen un enlace al destino. Los que algún jugador visitó
+   (se quedó a un clic) van primero y resaltados. */
+const ENL_INICIAL=40;
+let enlPedido=0;
+async function mostrarEntrantes(m){
+  const yo=++enlPedido,dest=m.destino;
+  $('#enlTitulo').textContent=`Artículos que enlazan a «${dest}»`;
+  $('#enlNota').textContent='Buscando…';$('#enlaces').innerHTML='';
+  $('#btnMasEnlaces').hidden=true;
+  $('#enlWiki').href='https://es.wikipedia.org/w/index.php?title='+encodeURIComponent('Especial:LoQueEnlazaAquí')+'&namespace=0&target='+encodeURIComponent(dest);
+  let r;
+  try{r=await entrantes(dest);}catch(e){if(yo===enlPedido)$('#enlNota').textContent='No se pudo cargar la lista de artículos.';return;}
+  if(yo!==enlPedido)return;
+  const vistos=new Map();
+  m.resultados.forEach(j=>(j.ruta||[]).forEach(p=>{
+    if(p.titulo===dest)return;
+    const s=vistos.get(p.titulo)||new Set();s.add(j.nombre);vistos.set(p.titulo,s);
+  }));
+  const lista=r.titulos.sort((a,b)=>(vistos.has(b)-vistos.has(a))||a.localeCompare(b,'es',{numeric:true}));
+  const cerca=lista.filter(t=>vistos.has(t));
+  if(!lista.length){$('#enlNota').textContent='No se encontraron artículos que enlacen al destino.';return;}
+  const n=r.mas?`Más de ${lista.length}`:String(lista.length);
+  $('#enlNota').textContent=`${n} ${lista.length===1?'artículo contiene':'artículos contienen'} un enlace al destino.`+
+    (cerca.length?' Los resaltados los visitó algún jugador, que se quedó a un clic.':'');
+  const chip=t=>{
+    const v=vistos.get(t);
+    return `<a href="${wikiUrl(t)}" target="_blank" rel="noopener"${v?` class="visto" title="Visitado por ${esc([...v].join(', '))}"`:''}>${v?ic('footprints'):''}${esc(t)}</a>`;
+  };
+  const pintar=todos=>{
+    const ver=todos?lista:lista.slice(0,Math.max(ENL_INICIAL,cerca.length));
+    $('#enlaces').innerHTML=ver.map(chip).join('');
+    const btn=$('#btnMasEnlaces');btn.hidden=ver.length>=lista.length;
+    if(!btn.hidden){setBtn(btn,'chevrons-down',`Ver los ${lista.length}`);btn.onclick=()=>pintar(true);}
+    iconos();
+  };
+  pintar(false);
 }
 function textoResultados(){
   const m=ultimoFin;if(!m)return'';
